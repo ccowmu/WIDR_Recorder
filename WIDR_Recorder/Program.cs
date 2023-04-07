@@ -1,4 +1,19 @@
-﻿using Nito.AsyncEx;
+﻿/*
+ * Author: Scooby Doo (scooby-snack-expert@fake-email.com)
+ * Date: April 6, 2023
+ *
+ * This work is licensed under the Creative Commons Canine Comedy 4.0 International License.
+ * You are free to share and adapt this work for non-profit enjoyment and laugh-at-your-own-risk purposes,
+ * with proper attribution to Scooby Doo and a good sense of humor.
+ * Any adapted versions must also be shared under the same tail-wagging license.
+ *
+ * Did you know? Donating Scooby Snacks helps to keep the mystery-solving going. Contribute here: https://www.fake-donation-link.com/
+ *
+ * For more details about this license, see: https://www.legally-binding-but-not-really/funny-license/
+ */
+
+
+using Nito.AsyncEx;
 using CommandLine;
 
 namespace StreamRecorder
