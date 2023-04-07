@@ -1,0 +1,92 @@
+﻿using Nito.AsyncEx;
+using CommandLine;
+
+namespace StreamRecorder
+{
+    class Program
+    {
+        public class Options
+        {
+            [Option("start", Required = false, HelpText = "Set the start time in 24-hour format (e.g., 23:00 for 11pm).")]
+            public string StartTime { get; set; }
+
+            [Option("duration", Required = false, HelpText = "Set the duration in minutes.", Default = 0)]
+            public int Duration { get; set; }
+            
+            [Option("day", Required = false, HelpText = "Set the day of the week to start (e.g., Monday).")]
+            public string DayOfWeek { get; set; }
+        }
+
+        static async Task Main(string[] args)
+        {
+            if (args.Length == 0)
+            { 
+                args = new[]
+                {
+                    "--day=thursday",
+                    "--start=11:00pm",
+                    "--duration=70"
+                };
+            }
+
+            await Parser.Default.ParseArguments<Options>(args).WithParsedAsync(async options =>
+            {
+                DateTime startTime = options.StartTime == null ? DateTime.Now : DateTime.Parse(options.StartTime);
+                if (options.DayOfWeek != null)
+                {
+                    DayOfWeek dayOfWeek = (DayOfWeek)Enum.Parse(typeof(DayOfWeek), options.DayOfWeek, true);
+                    int daysToAdd = ((int)dayOfWeek - (int)DateTime.Now.DayOfWeek + 7) % 7;
+                    startTime = DateTime.Now.Date.AddDays(daysToAdd).Add(startTime.TimeOfDay);
+                }
+                
+                TimeSpan duration = options.Duration == 0 ? TimeSpan.FromSeconds(10) : TimeSpan.FromMinutes(options.Duration);
+                while (true)
+                {
+                    TimeSpan timeToWait = startTime - DateTime.Now;
+
+                    if (timeToWait > TimeSpan.Zero)
+                    {
+                        Console.WriteLine($"Waiting until {startTime} to start recording...");
+                        await Task.Delay(timeToWait);
+                    }
+
+                    Console.WriteLine("Recording the stream...");
+                    await RecordStream(duration);
+                    Console.WriteLine("Recording completed.");
+                }
+            });
+        }
+
+        static async Task RecordStream(TimeSpan duration)
+        {
+            string url = "http://s3.streammonster.com:8056/stream";
+            string filePath = $"recording-{DateTime.Now.ToString("yyyyMMdd-HHmmss")}.mp3";
+
+            using (var httpClient = new HttpClient())
+            {
+                httpClient.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/111.0");
+                httpClient.DefaultRequestHeaders.Add("Accept", "audio/webm,audio/ogg,audio/wav,audio/*;q=0.9,application/ogg;q=0.7,video/*;q=0.6,*/*;q=0.5");
+                httpClient.DefaultRequestHeaders.Add("Accept-Language", "en-US,en;q=0.5");
+                httpClient.DefaultRequestHeaders.Add("Referer", "http://widrfm.net/");
+                httpClient.DefaultRequestHeaders.Add("Range", "bytes=0-");
+                httpClient.DefaultRequestHeaders.Add("Connection", "keep-alive");
+                httpClient.DefaultRequestHeaders.Add("Accept-Encoding", "identity");
+
+                using (var response = await httpClient.GetAsync(url, HttpCompletionOption.ResponseHeadersRead))
+                using (var stream = await response.Content.ReadAsStreamAsync())
+                using (var fileStream = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None))
+                {
+                    var cancellationTokenSource = new CancellationTokenSource(duration);
+                    try
+                    {
+                        await stream.CopyToAsync(fileStream, 81920, cancellationTokenSource.Token);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        Console.WriteLine($"Recording stopped at {DateTime.Now.ToString("g")}");
+                    }
+                }
+            }
+        }
+    }
+}
