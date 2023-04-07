@@ -13,7 +13,7 @@
  */
 
 
-using Nito.AsyncEx;
+using System.Globalization;
 using CommandLine;
 
 namespace StreamRecorder
@@ -30,6 +30,9 @@ namespace StreamRecorder
             
             [Option("day", Required = false, HelpText = "Set the day of the week to start (e.g., Monday).")]
             public string DayOfWeek { get; set; }
+            
+            [Option("timezone", Required = false, HelpText = "Set the timezone (e.g., 'America/New_York').", Default = "America/New_York")]
+            public string Timezone { get; set; }
         }
 
         static async Task Main(string[] args)
@@ -38,20 +41,28 @@ namespace StreamRecorder
             { 
                 args = new[]
                 {
-                    "--day=thursday",
+                    "--day=friday",
                     "--start=11:00pm",
-                    "--duration=70"
+                    "--duration=70",
+                    "--timezone=America/New_York"
                 };
             }
 
             await Parser.Default.ParseArguments<Options>(args).WithParsedAsync(async options =>
             {
-                DateTime startTime = options.StartTime == null ? DateTime.Now : DateTime.Parse(options.StartTime);
+                Console.WriteLine(options.DayOfWeek);
+                Console.WriteLine(options.Timezone);
+                
+                DateTimeOffset startTime = DateTimeOffset.Parse(options.StartTime, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal);
+                TimeZoneInfo timeZone = TimeZoneInfo.FindSystemTimeZoneById(options.Timezone);
+
+                startTime = TimeZoneInfo.ConvertTime(startTime, timeZone);
+
                 if (options.DayOfWeek != null)
                 {
                     DayOfWeek dayOfWeek = (DayOfWeek)Enum.Parse(typeof(DayOfWeek), options.DayOfWeek, true);
-                    int daysToAdd = ((int)dayOfWeek - (int)DateTime.Now.DayOfWeek + 7) % 7;
-                    startTime = DateTime.Now.Date.AddDays(daysToAdd).Add(startTime.TimeOfDay);
+                    int daysToAdd = ((int)dayOfWeek - (int)startTime.DayOfWeek + 7) % 7;
+                    startTime = startTime.Date.AddDays(daysToAdd).Add(startTime.TimeOfDay);
                 }
                 
                 TimeSpan duration = options.Duration == 0 ? TimeSpan.FromSeconds(10) : TimeSpan.FromMinutes(options.Duration);
@@ -61,13 +72,13 @@ namespace StreamRecorder
 
                     if (timeToWait > TimeSpan.Zero)
                     {
-                        Console.WriteLine($"Waiting until {startTime} to start recording...");
+                        Console.WriteLine($"[{DateTime.Now.ToString("g")} ({TimeZoneInfo.Local.DisplayName})] Waiting until {startTime.ToString("g")} {startTime.LocalDateTime} ({options.Timezone}) to start recording...");
                         await Task.Delay(timeToWait);
                     }
 
-                    Console.WriteLine("Recording the stream...");
+                    Console.WriteLine($"[{DateTime.Now.ToString("g")} ({TimeZoneInfo.Local.DisplayName})] Recording the stream...");
                     await RecordStream(duration);
-                    Console.WriteLine("Recording completed.");
+                    Console.WriteLine($"[{DateTime.Now.ToString("g")} ({TimeZoneInfo.Local.DisplayName})] Recording completed.");
                 }
             });
         }
@@ -98,7 +109,7 @@ namespace StreamRecorder
                     }
                     catch (OperationCanceledException)
                     {
-                        Console.WriteLine($"Recording stopped at {DateTime.Now.ToString("g")}");
+                        Console.WriteLine($"[{DateTime.Now.ToString("g")} ({TimeZoneInfo.Local.DisplayName})] Saved to {filePath}");
                     }
                 }
             }
