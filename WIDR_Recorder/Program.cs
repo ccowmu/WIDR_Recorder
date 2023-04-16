@@ -14,6 +14,7 @@
 
 
 using System.Globalization;
+using System.Text.RegularExpressions;
 using CommandLine;
 
 namespace StreamRecorder
@@ -22,13 +23,13 @@ namespace StreamRecorder
     {
         public class Options
         {
-            [Option("start", Required = false, HelpText = "Set the start time in 24-hour format (e.g., 23:00 for 11pm).")]
-            public string StartTime { get; set; }
-
-            [Option("duration", Required = false, HelpText = "Set the duration in minutes.", Default = 0)]
+            [Option("duration", Default=5, Required = false, HelpText = "Set the duration in minutes.")]
             public int Duration { get; set; }
             
-            [Option("day", Required = false, HelpText = "Set the day of the week to start (e.g., Monday).")]
+            [Option("start", Required = false, HelpText = "Set the start time (e.g., 11:00pm).")]
+            public string StartTime { get; set; }
+            
+            [Option("day", Required = false, HelpText = "Set the day of the week to start (e.g., Monday).", Default = "Today")]
             public string DayOfWeek { get; set; }
             
             [Option("timezone", Required = false, HelpText = "Set the timezone (e.g., 'America/New_York').", Default = "America/New_York")]
@@ -37,28 +38,28 @@ namespace StreamRecorder
 
         static async Task Main(string[] args)
         {
-            if (args.Length == 0)
-            { 
-                args = new[]
-                {
-                    "--day=friday",
-                    "--start=11:00pm",
-                    "--duration=70",
-                    "--timezone=America/New_York"
-                };
-            }
-
+            // if (args.Length == 0)
+            // {
+            //     args = new[]
+            //     {
+            //         "--start=11:00pm",
+            //         "--day=friday"
+            //     };
+            // }
+            
             await Parser.Default.ParseArguments<Options>(args).WithParsedAsync(async options =>
             {
-                Console.WriteLine(options.DayOfWeek);
-                Console.WriteLine(options.Timezone);
-                
-                DateTimeOffset startTime = DateTimeOffset.Parse(options.StartTime, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal);
-                TimeZoneInfo timeZone = TimeZoneInfo.FindSystemTimeZoneById(options.Timezone);
+                DateTimeOffset startTime = options.StartTime == null
+                    ? DateTimeOffset.Now
+                    : DateTimeOffset.Parse(options.StartTime, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal);
+                TimeZoneInfo timeZone = options.Timezone == null
+                    ? TimeZoneInfo.Local
+                    : TimeZoneInfo.FindSystemTimeZoneById(options.Timezone);
 
                 startTime = TimeZoneInfo.ConvertTime(startTime, timeZone);
-
-                if (options.DayOfWeek != null)
+                Console.WriteLine($"startTime={startTime.ToString("g")}");
+                
+                if (!(options.DayOfWeek == null || options.DayOfWeek.ToLowerInvariant() == "today"))
                 {
                     DayOfWeek dayOfWeek = (DayOfWeek)Enum.Parse(typeof(DayOfWeek), options.DayOfWeek, true);
                     int daysToAdd = ((int)dayOfWeek - (int)startTime.DayOfWeek + 7) % 7;
@@ -70,15 +71,16 @@ namespace StreamRecorder
                 {
                     TimeSpan timeToWait = startTime - DateTime.Now;
 
+                    Console.WriteLine($"{TimeTag} Waiting {timeToWait.TotalMinutes} until {startTime.ToString("g")} to start recording...");
                     if (timeToWait > TimeSpan.Zero)
                     {
-                        Console.WriteLine($"[{DateTime.Now.ToString("g")} ({TimeZoneInfo.Local.DisplayName})] Waiting until {startTime.ToString("g")} {startTime.LocalDateTime} ({options.Timezone}) to start recording...");
                         await Task.Delay(timeToWait);
                     }
 
-                    Console.WriteLine($"[{DateTime.Now.ToString("g")} ({TimeZoneInfo.Local.DisplayName})] Recording the stream...");
+                    Console.WriteLine($"{TimeTag} Recording for {duration.TotalMinutes} minutes...");
                     await RecordStream(duration);
-                    Console.WriteLine($"[{DateTime.Now.ToString("g")} ({TimeZoneInfo.Local.DisplayName})] Recording completed.");
+                    Console.WriteLine($"{TimeTag} Recording completed.");
+                    startTime += TimeSpan.FromDays(7);
                 }
             });
         }
@@ -109,10 +111,35 @@ namespace StreamRecorder
                     }
                     catch (OperationCanceledException)
                     {
-                        Console.WriteLine($"[{DateTime.Now.ToString("g")} ({TimeZoneInfo.Local.DisplayName})] Saved to {filePath}");
+                        Console.WriteLine($"{TimeTag} Saved to {filePath}");
                     }
                 }
             }
         }
+        
+        public static string GetTimeZoneAbbreviation(TimeZoneInfo timeZoneInfo)
+        {
+            string abbreviation = timeZoneInfo.StandardName;
+
+            // Attempt to extract abbreviation from standard name (e.g., "Eastern Standard Time" -> "EST")
+            var match = Regex.Match(timeZoneInfo.StandardName, @"\b[A-Z]+\b");
+            if (match.Success)
+            {
+                abbreviation = match.Value;
+            }
+            else
+            {
+                // Attempt to extract abbreviation from Id (e.g., "America/New_York" -> "EST")
+                match = Regex.Match(timeZoneInfo.Id, @"[^/]+/[^/]+$");
+                if (match.Success)
+                {
+                    abbreviation = match.Value.Substring(match.Value.LastIndexOf('/') + 1).ToUpper();
+                }
+            }
+
+            return abbreviation;
+        }
+
+        private static string TimeTag => $"[{DateTime.Now.ToString("g")} ({GetTimeZoneAbbreviation(TimeZoneInfo.Local)})]";
     }
 }
